@@ -5,6 +5,8 @@ This module provides document loading functionality using langchain-community's
 unstructured document loaders.
 """
 
+from typing import Optional
+
 from langchain_community.document_loaders.unstructured import (
     UnstructuredFileLoader,
     UnstructuredAPIFileLoader,
@@ -39,12 +41,12 @@ class DocumentLoader:
         self.loader = UnstructuredFileLoader(self.file_path)
         return self.loader.load()
 
-    def load_with_api_loader(self, api_key: str = None):
+    def load_with_api_loader(self, api_key: Optional[str] = None):
         """
         Load a document using UnstructuredAPIFileLoader.
 
         Args:
-            api_key (str, optional): API key for the unstructured API.
+            api_key (Optional[str]): API key for the unstructured API.
 
         Returns:
             List of Document objects.
