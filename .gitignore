@@ -1,0 +1,38 @@
+# Entornos virtuales
+.venv/
+env/
+venv/
+
+# Archivos temporales
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.tmp
+*.log
+
+# Archivos de salida de Scrapy
+*.json
+*.csv
+*.xml
+downloads/
+output/
+
+# Configuración local / credenciales
+*.env
+config.json
+appsettings.json
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# Directorios específicos
+/src/hr_scraper/downloads
