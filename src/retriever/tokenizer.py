@@ -7,18 +7,14 @@ import spacy
 from typing import List
 
 try:
+    from src.shared.legal_terms import LEGAL_TERMS_TO_KEEP
+except ModuleNotFoundError:
+    from ..shared.legal_terms import LEGAL_TERMS_TO_KEEP
+
+try:
     _nlp = spacy.load("es_core_news_md", disable=["parser", "ner"])
 except OSError:
     _nlp = None
-
-# Terminos legales importantes que NO deben eliminarse como stopwords
-# (mismo conjunto que text_cleaner.py)
-_LEGAL_TERMS = {
-    'ley', 'decreto', 'artículo', 'inciso', 'apartado', 'resolución',
-    'ordenanza', 'disposición', 'reglamento', 'norma', 'código',
-    'constitución', 'derecho', 'deber', 'obligación', 'responsabilidad'
-}
-
 
 class SpanishTokenizer:
     """
@@ -52,7 +48,7 @@ class SpanishTokenizer:
                 continue
             token_lower = token.text.lower()
             if (not token.is_stop
-                    or token_lower in _LEGAL_TERMS
+                    or token_lower in LEGAL_TERMS_TO_KEEP
                     or token.pos_ in ('PROPN', 'NUM')):
                 lemma = token.lemma_.lower().strip()
                 if len(lemma) > 1:
