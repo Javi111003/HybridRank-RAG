@@ -23,8 +23,10 @@ ROBOTSTXT_OBEY = True
 
 # Concurrency and throttling settings
 #CONCURRENT_REQUESTS = 16
-CONCURRENT_REQUESTS_PER_DOMAIN = 1
+CONCURRENT_REQUESTS_PER_DOMAIN = 2
 DOWNLOAD_DELAY = 1
+RETRY_TIMES = 5
+DOWNLOAD_TIMEOUT = 300
 
 # Disable cookies (enabled by default)
 #COOKIES_ENABLED = False
@@ -69,8 +71,7 @@ ITEM_PIPELINES = {
 # Directorio donde se guardarán los PDFs
 FILES_STORE = 'downloads'
 
-# (Opcional) Retrasos y headers para no ser bloqueado
-DOWNLOAD_DELAY = 1
+# Headers para no ser bloqueado
 USER_AGENT = "Mozilla/5.0 (compatible; GacetaScraper/1.0; +https://example.com)"
 
 

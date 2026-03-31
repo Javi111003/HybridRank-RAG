@@ -28,6 +28,7 @@ rank-bm25==0.2.2
 
 # NLP & Text Processing
 spacy==3.7.2
+ijson==3.4.0
 # After installation, download Spanish model: python -m spacy download es_core_news_md
 
 # Core ML Dependencies
