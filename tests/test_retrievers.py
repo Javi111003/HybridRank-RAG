@@ -360,11 +360,11 @@ class TestDenseRetrieverRetrieve(unittest.TestCase):
         self.assertAlmostEqual(result_dict['doc_y'], 1.0 - 0.8)
 
     def test_retrieve_llama_encode_con_la_query(self):
-        """Verifica que la query se pase al modelo de embeddings."""
+        """Verifica que la query se pase al modelo de embeddings con prefijo E5."""
         retriever = self._build_retriever()
         retriever.retrieve("decreto ley", top_k=2)
 
-        retriever._model.encode.assert_called_once_with("decreto ley")
+        retriever._model.encode.assert_called_once_with("decreto ley", prompt="query: ")
 
     def test_retrieve_pasa_top_k_a_chromadb(self):
         """Verifica que n_results de ChromaDB sea igual a top_k."""
