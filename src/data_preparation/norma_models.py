@@ -238,6 +238,24 @@ class Norma:
 
 
 @dataclass
+class NormaIndexFragment:
+    """Indexable fragment derived from a structured legal norm."""
+    fragment_id: str
+    content: str
+    cleaned_content: str
+    metadata: Dict[str, Any]
+    embedding: List[float] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'content': self.content,
+            'cleaned_content': self.cleaned_content,
+            'metadata': self.metadata,
+            'embedding': self.embedding,
+        }
+
+
+@dataclass
 class Gaceta:
     """A Gaceta Oficial issue containing one or more normas."""
     numero: str

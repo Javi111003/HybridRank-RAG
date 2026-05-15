@@ -12,17 +12,19 @@ import ijson
 import chromadb
 from rank_bm25 import BM25Okapi
 
-from src.retriever.tokenizer import SpanishTokenizer
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 DATA_DIR = os.path.join(PROJECT_ROOT, '.data')
 EMBEDDINGS_PATH = os.path.join(DATA_DIR, 'embeddings', 'e5_elements_with_embeddings.json')
+NORMA_EMBEDDINGS_PATH = os.path.join(DATA_DIR, 'embeddings', 'e5_norma_fragments_with_embeddings.json')
 BM25_INDEX_DIR = os.path.join(DATA_DIR, 'bm25_index')
+NORMA_BM25_INDEX_DIR = os.path.join(DATA_DIR, 'bm25_norma_index')
 CHROMA_DIR = os.path.join(DATA_DIR, 'chroma')
+NORMA_CHROMA_DIR = os.path.join(DATA_DIR, 'chroma_normas')
 CHROMA_COLLECTION_NAME = "hybridrank_elements"
+NORMA_CHROMA_COLLECTION_NAME = "hybridrank_normas"
 EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"
 
 BATCH_SIZE = 5000
@@ -30,15 +32,24 @@ TOKENIZE_BATCH_SIZE = 1000
 TOKENIZE_N_PROCESS = 1
 
 
-def _is_valid_element(elem: dict) -> bool:
+def _create_spanish_tokenizer():
+    from src.retriever.tokenizer import SpanishTokenizer
+    return SpanishTokenizer()
+
+
+def _is_valid_element(elem: dict, require_embedding: bool = True) -> bool:
     """Verifica que un elemento tenga los campos requeridos para indexacion."""
     chunk_id = elem.get('metadata', {}).get('chunk_id')
     cleaned = elem.get('cleaned_content', '').strip()
-    embedding = elem.get('embedding', [])
-    return bool(chunk_id and cleaned and embedding)
+    if not chunk_id or not cleaned:
+        return False
+    if require_embedding:
+        embedding = elem.get('embedding', [])
+        return bool(embedding)
+    return True
 
 
-def stream_elements(path: str) -> Iterator[Dict[str, Any]]:
+def stream_elements(path: str, require_embedding: bool = True) -> Iterator[Dict[str, Any]]:
     """
     Genera elementos validos uno a uno desde el JSON usando ijson (streaming).
     No carga el archivo completo en memoria — ideal para archivos de varios GB.
@@ -46,17 +57,21 @@ def stream_elements(path: str) -> Iterator[Dict[str, Any]]:
     logger.info(f"Streaming elementos desde {path}...")
     with open(path, 'rb') as f:
         for elem in ijson.items(f, 'item'):
-            if _is_valid_element(elem):
+            if _is_valid_element(elem, require_embedding=require_embedding):
                 yield elem
 
 
-def stream_batches(path: str, batch_size: int = BATCH_SIZE) -> Iterator[List[Dict[str, Any]]]:
+def stream_batches(
+    path: str,
+    batch_size: int = BATCH_SIZE,
+    require_embedding: bool = True,
+) -> Iterator[List[Dict[str, Any]]]:
     """
     Genera batches de elementos validos desde el JSON usando streaming.
     Cada batch es una lista de hasta batch_size elementos.
     """
     batch = []
-    for elem in stream_elements(path):
+    for elem in stream_elements(path, require_embedding=require_embedding):
         batch.append(elem)
         if len(batch) >= batch_size:
             yield batch
@@ -89,7 +104,7 @@ def build_bm25_index(
         shutil.rmtree(index_dir)
     os.makedirs(index_dir, exist_ok=True)
 
-    tokenizer = SpanishTokenizer()
+    tokenizer = _create_spanish_tokenizer()
     all_doc_ids = []
     all_tokenized = []
     total_read = 0
@@ -98,7 +113,7 @@ def build_bm25_index(
     logger.info(f"Tokenizando corpus en batches de {batch_size} (spaCy batch={tokenize_batch_size}, "
                 f"n_process={n_process})...")
 
-    for batch in stream_batches(path, batch_size):
+    for batch in stream_batches(path, batch_size, require_embedding=False):
         contents = [elem['cleaned_content'] for elem in batch]
         chunk_ids = [elem['metadata']['chunk_id'] for elem in batch]
 
@@ -154,28 +169,58 @@ def build_bm25_index(
     logger.info("Indice BM25 construido exitosamente.")
 
 
+_METADATA_KEYS_TO_KEEP = {
+    'chunk_id',
+    'source',
+    'type',
+    'filename',
+    'document_type',
+    'filetype',
+    'page_number',
+    'corpus_type',
+    'tipo',
+    'numero',
+    'year',
+    'organismo_emisor',
+    'goc_code',
+    'page_start',
+    'page_end',
+    'match_confidence',
+    'ordinal_position',
+    'raw_metadata_string',
+}
+
+_METADATA_PREFIXES_TO_KEEP = ('gaceta_', 'norma_', 'fragment_')
+
+
+def _chroma_safe_metadata_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 def _sanitize_metadata(meta: dict) -> dict:
     """
     Asegura que todos los valores de metadata sean compatibles con ChromaDB.
     ChromaDB solo acepta str, int, float, bool como valores.
-    Preserva campos gaceta_* para permitir filtrado en retrieval.
+    Preserva campos gaceta_*, norma_* y fragment_* para permitir filtrado
+    y trazabilidad en retrieval.
     """
     clean = {}
     for key in ['source', 'type', 'filename', 'document_type', 'filetype']:
-        clean[key] = meta.get(key) or ""
+        clean[key] = _chroma_safe_metadata_value(meta.get(key) or "")
     clean['page_number'] = meta.get('page_number') if meta.get('page_number') is not None else -1
 
     for key, value in meta.items():
-        if not key.startswith('gaceta_'):
+        if key not in _METADATA_KEYS_TO_KEEP and not key.startswith(_METADATA_PREFIXES_TO_KEEP):
             continue
-        if value is None:
-            clean[key] = ""
-        elif isinstance(value, list):
-            clean[key] = json.dumps(value, ensure_ascii=False)
-        elif isinstance(value, (str, int, float, bool)):
-            clean[key] = value
-        else:
-            clean[key] = str(value)
+        clean[key] = _chroma_safe_metadata_value(value)
 
     return clean
 
@@ -246,24 +291,89 @@ def build_chroma_index(
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Construye indices BM25 y/o Chroma para HybridRank")
+    parser.add_argument(
+        '--input-file',
+        default=EMBEDDINGS_PATH,
+        help="JSON con elementos y embeddings. Default: .data/embeddings/e5_elements_with_embeddings.json",
+    )
+    parser.add_argument(
+        '--build',
+        choices=['bm25', 'chroma', 'both'],
+        default='chroma',
+        help="Indice a construir (default: chroma, para preservar el comportamiento actual)",
+    )
+    parser.add_argument(
+        '--bm25-index-dir',
+        default=BM25_INDEX_DIR,
+        help="Directorio de salida para BM25",
+    )
+    parser.add_argument(
+        '--chroma-dir',
+        default=CHROMA_DIR,
+        help="Directorio persistente de ChromaDB",
+    )
+    parser.add_argument(
+        '--collection-name',
+        default=CHROMA_COLLECTION_NAME,
+        help="Nombre de la coleccion ChromaDB",
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=BATCH_SIZE,
+        help=f"Tamano de batch para lectura/insercion (default: {BATCH_SIZE})",
+    )
+    parser.add_argument(
+        '--tokenize-batch-size',
+        type=int,
+        default=TOKENIZE_BATCH_SIZE,
+        help=f"Tamano de batch de spaCy para BM25 (default: {TOKENIZE_BATCH_SIZE})",
+    )
+    parser.add_argument(
+        '--n-process',
+        type=int,
+        default=TOKENIZE_N_PROCESS,
+        help=f"Procesos spaCy para BM25 (default: {TOKENIZE_N_PROCESS})",
+    )
+    args = parser.parse_args()
+
     logger.info("=" * 60)
     logger.info("Inicio de indexacion HybridRank")
     logger.info("=" * 60)
 
-    if not os.path.exists(EMBEDDINGS_PATH):
-        logger.error(f"No se encontro el archivo de embeddings: {EMBEDDINGS_PATH}")
+    if not os.path.exists(args.input_file):
+        logger.error(f"No se encontro el archivo de entrada: {args.input_file}")
         sys.exit(1)
 
-    #logger.info("\n--- Paso 1/2: Construyendo indice BM25 (rank-bm25) ---")
-    #build_bm25_index(EMBEDDINGS_PATH, BM25_INDEX_DIR)
+    if args.build in ('bm25', 'both'):
+        logger.info("\n--- Construyendo indice BM25 (rank-bm25) ---")
+        build_bm25_index(
+            args.input_file,
+            args.bm25_index_dir,
+            batch_size=args.batch_size,
+            tokenize_batch_size=args.tokenize_batch_size,
+            n_process=args.n_process,
+        )
 
-    logger.info("\n--- Paso 2/2: Construyendo indice ChromaDB (Dense) ---")
-    build_chroma_index(EMBEDDINGS_PATH, CHROMA_DIR, CHROMA_COLLECTION_NAME)
+    if args.build in ('chroma', 'both'):
+        logger.info("\n--- Construyendo indice ChromaDB (Dense) ---")
+        build_chroma_index(
+            args.input_file,
+            args.chroma_dir,
+            args.collection_name,
+            batch_size=args.batch_size,
+        )
 
     logger.info("\n" + "=" * 60)
     logger.info("Indexacion completada exitosamente.")
-    logger.info(f"  BM25 index:  {BM25_INDEX_DIR}")
-    logger.info(f"  ChromaDB:    {CHROMA_DIR}")
+    logger.info(f"  Input:       {args.input_file}")
+    logger.info(f"  Build:       {args.build}")
+    logger.info(f"  BM25 index:  {args.bm25_index_dir}")
+    logger.info(f"  ChromaDB:    {args.chroma_dir}")
+    logger.info(f"  Collection:  {args.collection_name}")
     logger.info("=" * 60)
 
 

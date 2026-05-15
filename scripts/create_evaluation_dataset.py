@@ -14,12 +14,29 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.retriever.bm25_retriever import BM25Retriever
 from src.retriever.dense_retriever import DenseRetriever
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+CORPUS_CONFIGS = {
+    "elements": {
+        "output": os.path.join(PROJECT_ROOT, ".data", "evaluation", "qrels.json"),
+        "bm25_index_dir": os.path.join(PROJECT_ROOT, ".data", "bm25_index"),
+        "chroma_dir": os.path.join(PROJECT_ROOT, ".data", "chroma"),
+        "collection_name": "hybridrank_elements",
+    },
+    "normas": {
+        "output": os.path.join(PROJECT_ROOT, ".data", "evaluation", "norma_qrels.json"),
+        "bm25_index_dir": os.path.join(PROJECT_ROOT, ".data", "bm25_norma_index"),
+        "chroma_dir": os.path.join(PROJECT_ROOT, ".data", "chroma_normas"),
+        "collection_name": "hybridrank_normas",
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +67,36 @@ def load_queries(path: str) -> List[Dict]:
                 f"Encontrado: {list(q.keys())}"
             )
     return queries
+
+
+def resolve_corpus_config(
+    corpus: str,
+    output: Optional[str] = None,
+    bm25_index_dir: Optional[str] = None,
+    chroma_dir: Optional[str] = None,
+    collection_name: Optional[str] = None,
+) -> Dict[str, str]:
+    """Resuelve rutas para el corpus seleccionado."""
+    if corpus not in CORPUS_CONFIGS:
+        raise ValueError(f"Corpus no soportado: {corpus}")
+
+    defaults = CORPUS_CONFIGS[corpus]
+    return {
+        "output": output or defaults["output"],
+        "bm25_index_dir": bm25_index_dir or defaults["bm25_index_dir"],
+        "chroma_dir": chroma_dir or defaults["chroma_dir"],
+        "collection_name": collection_name or defaults["collection_name"],
+    }
+
+
+def create_retrievers(config: Dict[str, str]) -> Tuple[BM25Retriever, DenseRetriever]:
+    """Crea retrievers usando rutas explicitas del corpus."""
+    bm25 = BM25Retriever(index_dir=config["bm25_index_dir"])
+    dense = DenseRetriever(
+        chroma_dir=config["chroma_dir"],
+        collection_name=config["collection_name"],
+    )
+    return bm25, dense
 
 
 def build_pool(
@@ -141,6 +188,60 @@ def fetch_full_texts(
         text = _clean_whitespace(doc or "")
         texts[chunk_id] = text
     return texts
+
+
+def fetch_doc_metadata(
+    doc_ids: List[str], chroma_collection
+) -> Dict[str, Dict[str, Any]]:
+    """Recupera metadata de ChromaDB para trazabilidad del pool."""
+    if not doc_ids:
+        return {}
+
+    result = chroma_collection.get(ids=doc_ids, include=["metadatas"])
+    metadata_by_id: Dict[str, Dict[str, Any]] = {}
+    for doc_id, metadata in zip(result["ids"], result["metadatas"]):
+        metadata_by_id[doc_id] = metadata or {}
+    return metadata_by_id
+
+
+def _unique_norma_ids(doc_ids: List[str], doc_metadata: Dict[str, Dict[str, Any]]) -> List[str]:
+    seen = set()
+    norma_ids = []
+    for doc_id in doc_ids:
+        norma_id = doc_metadata.get(doc_id, {}).get("norma_id")
+        if not norma_id or norma_id in seen:
+            continue
+        seen.add(norma_id)
+        norma_ids.append(norma_id)
+    return norma_ids
+
+
+def build_result_record(
+    query_info: Dict,
+    doc_ids: List[str],
+    relevant_docs: List[str],
+    corpus: str,
+    doc_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict:
+    """Construye el registro qrels manteniendo compatibilidad con el formato actual."""
+    record = {
+        "query_id": query_info["query_id"],
+        "query_type": query_info["query_type"],
+        "query": query_info["query"],
+        "pool_docs": doc_ids,
+        "relevant_docs": relevant_docs,
+    }
+
+    if corpus == "normas":
+        metadata = doc_metadata or {}
+        record["pool_normas"] = _unique_norma_ids(doc_ids, metadata)
+        record["relevant_normas"] = _unique_norma_ids(relevant_docs, metadata)
+        record["doc_metadata"] = {
+            doc_id: metadata.get(doc_id, {})
+            for doc_id in doc_ids
+        }
+
+    return record
 
 
 def display_pool(
@@ -385,8 +486,14 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default=".data/evaluation/qrels.json",
-        help="Path de salida del JSON (default: .data/evaluation/qrels.json)",
+        default=None,
+        help="Path de salida del JSON (default: qrels por corpus)",
+    )
+    parser.add_argument(
+        "--corpus",
+        choices=["elements", "normas"],
+        default="elements",
+        help="Corpus a evaluar: elements usa el indice actual, normas usa fragmentos normativos",
     )
     parser.add_argument(
         "--top-k",
@@ -399,14 +506,35 @@ def main():
         action="store_true",
         help="Modo paginado: navega doc por doc con contenido extendido y anotacion binaria",
     )
+    parser.add_argument(
+        "--bm25-index-dir",
+        default=None,
+        help="Directorio BM25 explicito; si se omite, depende del corpus",
+    )
+    parser.add_argument(
+        "--chroma-dir",
+        default=None,
+        help="Directorio ChromaDB explicito; si se omite, depende del corpus",
+    )
+    parser.add_argument(
+        "--collection-name",
+        default=None,
+        help="Coleccion ChromaDB explicita; si se omite, depende del corpus",
+    )
     args = parser.parse_args()
+    config = resolve_corpus_config(
+        args.corpus,
+        output=args.output,
+        bm25_index_dir=args.bm25_index_dir,
+        chroma_dir=args.chroma_dir,
+        collection_name=args.collection_name,
+    )
 
     queries = load_queries(args.queries)
     print(f"Cargadas {len(queries)} queries desde {args.queries}")
 
-    print("Inicializando retrievers...")
-    bm25 = BM25Retriever()
-    dense = DenseRetriever()
+    print(f"Inicializando retrievers para corpus '{args.corpus}'...")
+    bm25, dense = create_retrievers(config)
     chroma_collection = dense._collection
     print("Retrievers listos.\n")
 
@@ -421,6 +549,11 @@ def main():
         # Obtener previews del contenido
         doc_ids = [e["doc_id"] for e in pool]
         previews = fetch_previews(doc_ids, chroma_collection)
+        doc_metadata = (
+            fetch_doc_metadata(doc_ids, chroma_collection)
+            if args.corpus == "normas"
+            else {}
+        )
 
         # Mostrar pool resumen (ambos modos)
         display_pool(query_info, pool, previews)
@@ -432,18 +565,18 @@ def main():
         else:
             relevant_docs = annotate_relevant(pool)
 
-        results.append({
-            "query_id": query_info["query_id"],
-            "query_type": query_info["query_type"],
-            "query": query_info["query"],
-            "pool_docs": doc_ids,
-            "relevant_docs": relevant_docs,
-        })
+        results.append(build_result_record(
+            query_info,
+            doc_ids,
+            relevant_docs,
+            corpus=args.corpus,
+            doc_metadata=doc_metadata,
+        ))
 
         print(f"  -> {len(relevant_docs)} docs marcados como relevantes.")
 
     # Guardar
-    save_results(results, args.output)
+    save_results(results, config["output"])
 
     # Resumen
     total_relevant = sum(len(r["relevant_docs"]) for r in results)
