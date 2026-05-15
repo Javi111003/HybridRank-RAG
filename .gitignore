@@ -37,3 +37,5 @@ Thumbs.db
 # Directorios específicos
 /src/hr_scraper/downloads
 /.data/
+/.chainlit/
+/experiments/results/

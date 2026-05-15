@@ -35,6 +35,14 @@ ijson==3.4.0
 # numpy<2.0.0 requerido para spacy/thinc (compatibilidad binaria)
 numpy<2.0.0
 
+# RAG Generation
+mistralai>=1.0.0
+litellm>=1.40.0
+python-dotenv>=1.0.0
+
+# UI Demo
+chainlit>=1.1.0
+
 # ==============================================================================
 # Web Scraping Dependencies
 # ==============================================================================

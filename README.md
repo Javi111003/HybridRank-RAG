@@ -280,6 +280,203 @@ Defaults por corpus:
 | `elements` | `.data/evaluation/qrels.json` | `.data/bm25_index` | `.data/chroma` | `hybridrank_elements` |
 | `normas` | `.data/evaluation/norma_qrels.json` | `.data/bm25_norma_index` | `.data/chroma_normas` | `hybridrank_normas` |
 
+## RAG: Generacion Aumentada por Recuperacion
+
+El modulo `src/rag/` cierra el ciclo RAG: toma los resultados de retrieval, resuelve los fragmentos normativos, construye contexto, genera una respuesta con un LLM y formatea las citas juridicas.
+
+### Arquitectura del Pipeline
+
+```
+User Query
+  |
+  v
+HybridRetriever (BM25 + Dense + FusionStrategy)
+  |
+  v
+List[(fragment_id, score)]
+  |
+  v
+NormaStore  -->  ChromaDB (.data/chroma_normas)
+  |
+  v
+List[RetrievedFragment]  (texto + metadata juridica completa)
+  |
+  v
+ContextBuilder  -->  bloque [Fuente 1] ... [Fuente N]
+  |
+  v
+PromptBuilder  -->  system prompt legal + user prompt con contexto
+  |
+  v
+GeneratorProvider  -->  Mistral AI / LiteLLM (OpenRouter, etc.)
+  |
+  v
+CitationFormatter  -->  respuesta + bibliografia verificada
+  |
+  v
+RAGResult (answer, sources, timings, usage)
+```
+
+### Componentes del modulo RAG
+
+| Archivo | Responsabilidad |
+| --- | --- |
+| `src/rag/store/models.py` | `RetrievedFragment`: dataclass con accessors para metadata juridica. |
+| `src/rag/store/norma_store.py` | `NormaStore`: resuelve `fragment_id` a texto completo via ChromaDB `.get()`. |
+| `src/rag/context/context_builder.py` | `ContextBuilder`: arma bloque de contexto con headers de metadata, limites de chars/fragmentos. |
+| `src/rag/prompt/prompt_builder.py` | `PromptBuilder`: genera mensajes `system`/`user` para APIs de chat. |
+| `src/rag/prompt/templates.py` | Prompts en espanol especializados en legislacion cubana. |
+| `src/rag/generator/base.py` | `GeneratorProvider` ABC + `GenerationResult` dataclass. |
+| `src/rag/generator/mistral_provider.py` | `MistralProvider`: usa la API oficial de Mistral AI. |
+| `src/rag/generator/litellm_provider.py` | `LiteLLMProvider`: soporta OpenRouter y cualquier backend compatible con LiteLLM. |
+| `src/rag/generator/registry.py` | `get_generator(name)`: factory pattern, igual que `get_fusion_strategy`. |
+| `src/rag/citation/citation_formatter.py` | `CitationFormatter`: extrae `[Fuente N]` del texto, genera bibliografia, detecta citas invalidas. |
+| `src/rag/pipeline.py` | `RAGPipeline`: orquesta el flujo completo. `RAGResult` con respuesta, fuentes, tiempos y uso de tokens. |
+
+### Configuracion
+
+Copiar `.env.example` a `.env` y configurar las API keys:
+
+```bash
+cp .env.example .env
+```
+
+Variables principales:
+
+| Variable | Descripcion | Default |
+| --- | --- | --- |
+| `MISTRAL_API_KEY` | API key de Mistral AI. | — |
+| `OPENROUTER_API_KEY` | API key de OpenRouter (para LiteLLM). | — |
+| `GENERATOR_PROVIDER` | `mistral` o `litellm`. | `mistral` |
+| `GENERATOR_MODEL` | Modelo a usar. | `mistral-small-latest` |
+| `GENERATOR_TEMPERATURE` | Temperatura de generacion. | `0.1` |
+| `GENERATOR_MAX_TOKENS` | Maximo de tokens de respuesta. | `2048` |
+| `CONTEXT_MAX_FRAGMENTS` | Maximo de fragmentos en contexto. | `8` |
+| `CONTEXT_MAX_CHARS` | Limite de caracteres del contexto. | `12000` |
+| `TOP_K` | Documentos recuperados. | `10` |
+| `CANDIDATE_K` | Candidatos por retriever antes de fusion. | `50` |
+| `FUSION_STRATEGY` | Estrategia de fusion (`rrf`, `weighted`, `hybridrank`, etc.). | `hybridrank` |
+
+### Proveedores de Generacion
+
+**Mistral AI** (proveedor por defecto):
+
+```bash
+GENERATOR_PROVIDER=mistral
+GENERATOR_MODEL=mistral-small-latest
+MISTRAL_API_KEY=tu_api_key
+```
+
+**OpenRouter via LiteLLM**:
+
+```bash
+GENERATOR_PROVIDER=litellm
+GENERATOR_MODEL=openrouter/mistralai/mistral-small-3.1-24b-instruct
+OPENROUTER_API_KEY=tu_api_key
+```
+
+Otros modelos compatibles con LiteLLM:
+
+```bash
+GENERATOR_MODEL=openrouter/meta-llama/llama-3.1-8b-instruct
+GENERATOR_MODEL=openrouter/qwen/qwen-2.5-7b-instruct
+```
+
+### Uso programatico
+
+```python
+from src.retriever import BM25Retriever, DenseRetriever, HybridRetriever
+from src.retriever.fusion import get_fusion_strategy
+from src.rag import RAGPipeline, NormaStore, ContextBuilder, get_generator
+
+# Retriever hibrido sobre corpus normativo
+bm25 = BM25Retriever(index_dir=".data/bm25_norma_index")
+dense = DenseRetriever(
+    chroma_dir=".data/chroma_normas",
+    collection_name="hybridrank_normas",
+)
+fusion = get_fusion_strategy("hybridrank", alpha=0.5, beta=0.5)
+retriever = HybridRetriever(
+    retrievers={"bm25": bm25, "dense": dense},
+    fusion_strategy=fusion,
+    candidate_k=50,
+)
+
+# Pipeline RAG
+pipeline = RAGPipeline(
+    retriever=retriever,
+    generator=get_generator(),  # usa GENERATOR_PROVIDER del .env
+    top_k=10,
+)
+
+result = pipeline.run("Que establece el Decreto-Ley 114 de 2025?")
+print(result.answer)       # respuesta con citas [Fuente N] + bibliografia
+print(result.fragments)    # fragmentos recuperados con metadata
+print(result.total_time_ms)
+```
+
+El pipeline es desacoplado: acepta cualquier `Retriever` (BM25, Dense o Hybrid), cualquier `GeneratorProvider` (Mistral, LiteLLM), y los componentes intermedios son configurables.
+
+### Demo con Chainlit
+
+La aplicacion `app/chainlit_app.py` ofrece una interfaz web interactiva para consultar el sistema RAG.
+
+#### Prerequisitos
+
+1. Indices BM25 y Chroma normativos construidos (ver [Flujo Recomendado Para Normas](#flujo-recomendado-para-normas), pasos 1-4).
+2. Archivo `.env` configurado con al menos una API key de generacion (`MISTRAL_API_KEY` o `OPENROUTER_API_KEY`).
+
+#### Instalacion y ejecucion
+
+```powershell
+.\.venv\Scripts\pip.exe install chainlit
+.\.venv\Scripts\chainlit.exe run app\chainlit_app.py
+```
+
+Chainlit abre automaticamente `http://localhost:8000` en el navegador.
+
+#### Flujo de la aplicacion
+
+**Al iniciar la sesion** (`on_chat_start`):
+
+1. Construye un `BM25Retriever` con el indice normativo (`.data/bm25_norma_index`).
+2. Construye un `DenseRetriever` con ChromaDB normativo (`.data/chroma_normas`, coleccion `hybridrank_normas`).
+3. Crea un `HybridRetriever` combinando ambos con la `FusionStrategy` configurada en `.env` (default: `hybridrank`).
+4. Inicializa `NormaStore`, `ContextBuilder` y `GeneratorProvider` segun la configuracion.
+5. Muestra un mensaje de bienvenida con la configuracion activa: retriever, generador, top-k y estrategia de fusion.
+
+**Al recibir una consulta** (`on_message`):
+
+1. **Retrieval**: ejecuta `pipeline.run(query)`, que internamente consulta BM25 y Dense por separado, fusiona los rankings, y resuelve los `fragment_id` a texto completo via `NormaStore`.
+2. **Generacion**: construye el contexto con headers `[Fuente N]` y metadata juridica, arma los mensajes con el prompt legal, y envia al LLM configurado.
+3. **Respuesta**: muestra el texto generado con citas `[Fuente N]` seguido de una seccion "Fuentes Consultadas" con bibliografia verificada.
+4. **Metadata de ejecucion**: muestra tiempos de retrieval, generacion y total en milisegundos, mas el desglose de tokens (prompt + completion = total).
+5. **Fragmentos en panel lateral**: presenta hasta 5 fragmentos recuperados como elementos expandibles, cada uno con `citation_key` (ej. `Decreto-Ley 114/2025 (GOC-2026-215-O24)`), organismo emisor, score de relevancia, `fragment_id`, y un snippet de hasta 600 caracteres del contenido.
+
+#### Configuracion
+
+El retriever, la estrategia de fusion, el proveedor de generacion y el modelo se controlan via `.env`. Cambiar una variable y reiniciar Chainlit aplica la nueva configuracion sin modificar codigo.
+
+### Logging de Interacciones
+
+Cada consulta se registra automaticamente en `.data/logs/rag_interactions.jsonl`:
+
+```json
+{
+  "timestamp": "2026-05-15T...",
+  "query": "...",
+  "retriever": "HybridRetriever(bm25+dense|HybridRankFusion)",
+  "provider": "mistral-small-latest",
+  "retrieved_docs": [{"fragment_id": "...", "score": 0.842}],
+  "sources": ["Decreto-Ley 114/2025 (GOC-2026-215-O24)"],
+  "answer": "...",
+  "usage": {"prompt_tokens": 1200, "completion_tokens": 400, "total_tokens": 1600},
+  "retrieval_time_ms": 120.5,
+  "generation_time_ms": 2340.1,
+  "total_time_ms": 2461.8
+}
+```
+
 ## Flujo Recomendado Para Normas
 
 1. Procesar normas desde elementos limpios:
