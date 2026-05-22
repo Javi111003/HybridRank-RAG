@@ -126,8 +126,8 @@ def evaluate_single_query(
         row: Dict[str, Any] = {"top_k": k}
         for metric in metrics:
             result = metric.compute(retrieved, relevant_docs, k=k)
-            metric_name = result["metric_name"].lower().replace("@k", f"@{k}")
-            row[metric_name] = result["score"]
+            col_name = metric.name.lower().replace("@k", "")
+            row[col_name] = result["score"]
         rows.append(row)
 
     return rows
@@ -154,8 +154,11 @@ def run_evaluation():
 
     # Inicializar recuperadores base
     print("\nInicializando recuperadores...")
-    bm25 = BM25Retriever()
-    dense = DenseRetriever()
+    bm25 = BM25Retriever(index_dir=str(project_root / ".data" / "bm25_norma_index"))
+    dense = DenseRetriever(
+        chroma_dir=str(project_root / ".data" / "chroma_normas"),
+        collection_name="hybridrank_normas"
+    )
     print("  - BM25Retriever: OK")
     print("  - DenseRetriever: OK")
 
@@ -203,7 +206,7 @@ def run_evaluation():
     detail_path = OUTPUT_DIR / "fusion_metrics.csv"
     df.to_csv(detail_path, index=False, encoding="utf-8")
     print(f"\nResultados detallados: {detail_path}")
-    print(f"  → {len(df)} filas")
+    print(f"  {len(df)} filas")
 
     # Crear resumen agregado por estrategia
     metric_cols = [c for c in df.columns if any(
