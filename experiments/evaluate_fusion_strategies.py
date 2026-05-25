@@ -133,6 +133,46 @@ def evaluate_single_query(
     return rows
 
 
+def compute_retriever_overlap(
+    bm25: BM25Retriever,
+    dense: DenseRetriever,
+    queries: List[Dict[str, Any]],
+    k_values: List[int],
+) -> pd.DataFrame:
+    """
+    Calcula el solapamiento entre los top-k de BM25 y Dense para cada query.
+
+    overlap@k = |top_k_bm25 ∩ top_k_dense| / k
+    """
+    rows: List[Dict[str, Any]] = []
+    max_k = max(k_values)
+
+    for query_data in queries:
+        query_text = query_data["query"]
+        bm25_results = bm25.retrieve(query_text, top_k=max_k)
+        dense_results = dense.retrieve(query_text, top_k=max_k)
+
+        bm25_ids = [doc_id for doc_id, _ in bm25_results]
+        dense_ids = [doc_id for doc_id, _ in dense_results]
+
+        for k in k_values:
+            bm25_set = set(bm25_ids[:k])
+            dense_set = set(dense_ids[:k])
+            overlap = len(bm25_set & dense_set) / k if k > 0 else 0.0
+
+            rows.append({
+                "query_id": query_data["query_id"],
+                "query_type": query_data.get("query_type", "unknown"),
+                "top_k": k,
+                "overlap": round(overlap, 4),
+                "bm25_unique": len(bm25_set - dense_set),
+                "dense_unique": len(dense_set - bm25_set),
+                "shared": len(bm25_set & dense_set),
+            })
+
+    return pd.DataFrame(rows)
+
+
 def run_evaluation():
     """Ejecuta la evaluación completa."""
     print("=" * 60)
@@ -224,6 +264,13 @@ def run_evaluation():
         print("  RESUMEN (promedios por estrategia)")
         print("=" * 60)
         print(summary.to_string())
+
+    # Calcular overlap entre recuperadores
+    print("\nCalculando overlap BM25 vs Dense...")
+    overlap_df = compute_retriever_overlap(bm25, dense, queries_with_relevance, K_VALUES)
+    overlap_path = OUTPUT_DIR / "retriever_overlap.csv"
+    overlap_df.to_csv(overlap_path, index=False, encoding="utf-8")
+    print(f"Overlap guardado: {overlap_path}")
 
     print("\n\nEvaluación completada.")
 

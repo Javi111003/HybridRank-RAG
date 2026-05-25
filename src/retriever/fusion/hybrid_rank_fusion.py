@@ -67,9 +67,9 @@ class HybridRankFusion(FusionStrategy):
 
     def __init__(
         self,
-        alpha: float = 0.5,
-        beta: float = 0.5,
-        k: int = 60,
+        alpha: float = 0.7,
+        beta: float = 0.2,
+        k: int = 10,
         sparse_key: str = "bm25",
         dense_key: str = "dense",
         normalizer: str = "minmax",
@@ -77,9 +77,9 @@ class HybridRankFusion(FusionStrategy):
     ):
         """
         Args:
-            alpha: Peso sparse en weighted fusion [0, 1]. Default: 0.5.
-            beta: Peso RRF en fusión final [0, 1]. Default: 0.5.
-            k: Parámetro de suavizado RRF. Default: 60.
+            alpha: Peso sparse en weighted fusion [0, 1]. Default: 0.7.
+            beta: Peso RRF en fusión final [0, 1]. Default: 0.2.
+            k: Parámetro de suavizado RRF. Default: 10.
             sparse_key: Nombre del recuperador sparse. Default: "bm25".
             dense_key: Nombre del recuperador dense. Default: "dense".
             normalizer: Normalizador para sparse/dense. Default: "minmax".
