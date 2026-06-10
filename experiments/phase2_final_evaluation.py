@@ -317,7 +317,7 @@ def generate_visualizations(
     colors = [family_colors[f] for f in df_sorted["strategy_family"]]
     ax.barh(df_sorted["strategy"], df_sorted["objective"], color=colors)
     ax.set_xlabel("Objective (0.4*nDCG + 0.3*Recall + 0.2*MAP + 0.1*F1) @ k=10")
-    ax.set_title("Fase 2: Comparacion In-Sample de Estrategias")
+    ax.set_title("Comparación In-Sample de Estrategias")
     ax.set_xlim(0.5, 0.8)
     for spine in ["top", "right"]:
         ax.spines[spine].set_visible(False)
@@ -333,7 +333,7 @@ def generate_visualizations(
     bar_colors = ["#E8913A", "#4CAF50"]
     bars = ax.bar(strategies, means, yerr=stds, capsize=8, color=bar_colors, edgecolor="black", linewidth=0.5)
     ax.set_ylabel("Mean Test Objective (LOO-CV)")
-    ax.set_title("LOO-CV: Estimacion No Sesgada")
+    ax.set_title("LOO-CV: Estimación No Sesgada")
     ax.set_ylim(0.5, 0.9)
     for bar, val in zip(bars, means):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
@@ -372,7 +372,7 @@ def generate_visualizations(
     ax.axhline(0, color="black", linewidth=0.8, linestyle="-")
     ax.set_xlabel("Query ID")
     ax.set_ylabel("Difference (HybridRank - Weighted)")
-    ax.set_title("Comparacion Pareada: HybridRank vs Weighted (LOO-CV held-out)")
+    ax.set_title("Comparación Pareada: HybridRank vs Weighted (LOO-CV held-out)")
     ax.tick_params(axis="x", rotation=45)
     for spine in ["top", "right"]:
         ax.spines[spine].set_visible(False)

@@ -39,3 +39,4 @@ Thumbs.db
 /.data/
 /.chainlit/
 /experiments/results/
+/.files/
