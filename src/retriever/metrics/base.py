@@ -1,42 +1,40 @@
-# Abstract class for evaluation metrics
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any, Optional
+from typing import Any, TypeAlias
+
+from src.retriever.types import RetrievalResults
+
+DocumentIds: TypeAlias = list[str]
+MetricResult: TypeAlias = dict[str, Any]
+
 
 class Metric(ABC):
-    """
-    Clase base abstracta para métricas de evaluación de sistemas de recuperación.
-    """
-    
+    """Base contract for retrieval evaluation metrics."""
+
     @abstractmethod
     def compute(
         self,
-        retrieved_documents: List[Tuple[str, float]],
-        relevant_documents: List[str],
-        k: Optional[int] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Calcula el valor de la métrica.
-        
-        Args:
-            retrieved_documents: Lista de tuplas (doc_id, score) ordenadas por relevancia
-                                descendente. doc_id es el identificador único del documento
-                                (chunk_id) y score es la puntuación de relevancia.
-            relevant_documents: Lista de doc_ids que son relevantes para la consulta.
-            k: Número de documentos top a considerar. Si es None, considera todos
-               los documentos recuperados.
-            **kwargs: Parámetros adicionales específicos de cada métrica.
-        
-        Returns:
-            Dict con al menos:
-                - 'score': float - Valor numérico de la métrica
-                - 'metric_name': str - Nombre descriptivo de la métrica
-                Puede incluir metadata adicional específica de cada métrica.
-        """
-        pass
-    
+        retrieved_documents: RetrievalResults,
+        relevant_documents: DocumentIds,
+        k: int | None = None,
+        **kwargs: Any,
+    ) -> MetricResult:
+        raise NotImplementedError
+
     @property
     @abstractmethod
     def name(self) -> str:
-        """Retorna el nombre de la métrica."""
-        pass
+        raise NotImplementedError
+
+
+def effective_k(retrieved_documents: RetrievalResults, k: int | None) -> int:
+    if k is None:
+        return len(retrieved_documents)
+    return max(0, min(k, len(retrieved_documents)))
+
+
+def metric_name(base_name: str, requested_k: int | None, used_k: int) -> str:
+    return f"{base_name}@{used_k}" if requested_k is not None else base_name
+
+
+def top_k_ids(retrieved_documents: RetrievalResults, k: int) -> set[str]:
+    return {doc_id for doc_id, _ in retrieved_documents[:k]}

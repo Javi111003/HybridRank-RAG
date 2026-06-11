@@ -1,102 +1,60 @@
-# Normalized Discounted Cumulative Gain (nDCG) metric implementation
-from typing import List, Tuple, Dict, Any, Optional
-import numpy as np
-from .base import Metric
+from math import log2
+from typing import Any
+
+from src.retriever.types import RetrievalResults
+
+from .base import DocumentIds, Metric, MetricResult, effective_k
 
 
 class NDCG(Metric):
     """
-    Implementación de Normalized Discounted Cumulative Gain (nDCG@k).
-    
-    nDCG mide la calidad del ranking considerando tanto la relevancia de los
-    documentos como su posición en el ranking:
-    
-    DCG@k = Σ(i=1 to k) [(2^rel_i - 1) / log2(i + 1)]
-    nDCG@k = DCG@k / IDCG@k
-    
-    donde:
-    - rel_i es la relevancia del documento en posición i
-    - IDCG@k es el DCG ideal (documentos perfectamente ordenados)
-    
-    En esta implementación usamos relevancia binaria (rel=1 si relevante, 0 si no).
+    Position-discounted ranking quality.
+
+    DCG@k = sum((2^rel_i - 1) / log2(i + 1)); nDCG@k = DCG@k / IDCG@k.
+    Uses binary relevance: 1 for relevant, 0 otherwise.
     """
-    
+
     def compute(
         self,
-        retrieved_documents: List[Tuple[str, float]],
-        relevant_documents: List[str],
-        k: Optional[int] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Calcula nDCG@k (Normalized Discounted Cumulative Gain).
-        
-        Args:
-            retrieved_documents: Lista de tuplas (doc_id, score) ordenadas por relevancia.
-            relevant_documents: Lista de doc_ids relevantes.
-            k: Número de documentos top a considerar. Si es None, usa todos los recuperados.
-            **kwargs: Parámetros adicionales (no usados en esta métrica).
-        
-        Returns:
-            Dict con:
-                - 'score': float - Valor de nDCG@k en [0, 1]
-                - 'metric_name': str - "nDCG@k"
-                - 'k': int - Valor de k usado
-                - 'dcg': float - Discounted Cumulative Gain
-                - 'idcg': float - Ideal DCG
-        """
-        if not relevant_documents or not retrieved_documents:
-            effective_k = k if k is not None else (len(retrieved_documents) if retrieved_documents else 0)
-            return {
-                'score': 0.0,
-                'metric_name': f'nDCG@{effective_k}',
-                'k': effective_k,
-                'dcg': 0.0,
-                'idcg': 0.0
-            }
-        
-        if k is None:
-            k_effective = len(retrieved_documents)
-        else:
-            k_effective = min(k, len(retrieved_documents))
-        
-        relevant_set = set(relevant_documents)
-        
-        dcg = 0.0
-        for i, (doc_id, _) in enumerate(retrieved_documents[:k_effective], start=1):
-            relevance = 1 if doc_id in relevant_set else 0
-            dcg += (2**relevance - 1) / np.log2(i + 1)
-        
-        # Calcular IDCG@k (ideal DCG con ranking perfecto)
-        # En el caso ideal, todos los documentos relevantes estarían primero
-        num_relevant = len(relevant_documents)
-        num_ideal_relevant = min(num_relevant, k_effective)
-        
-        idcg = 0.0
-        for i in range(1, num_ideal_relevant + 1):
-            # En el caso ideal, los primeros num_ideal_relevant docs son relevantes
-            idcg += (2**1 - 1) / np.log2(i + 1)
-        
-        if idcg == 0.0:
-            return {
-                'score': 0.0,
-                'metric_name': f'nDCG@{k_effective}',
-                'k': k_effective,
-                'dcg': dcg,
-                'idcg': idcg
-            }
-        
-        ndcg_score = dcg / idcg
-        
+        retrieved_documents: RetrievalResults,
+        relevant_documents: DocumentIds,
+        k: int | None = None,
+        **kwargs: Any,
+    ) -> MetricResult:
+        used_k = effective_k(retrieved_documents, k)
+        relevant = set(relevant_documents)
+
+        if not retrieved_documents or not relevant:
+            return self._result(used_k, dcg=0.0, idcg=0.0)
+
+        gains = [
+            1 if doc_id in relevant else 0
+            for doc_id, _ in retrieved_documents[:used_k]
+        ]
+        dcg = _dcg(gains)
+
+        ideal_relevant_count = min(len(relevant_documents), used_k)
+        idcg = _dcg([1] * ideal_relevant_count)
+
+        return self._result(used_k, dcg=dcg, idcg=idcg)
+
+    @staticmethod
+    def _result(k: int, dcg: float, idcg: float) -> MetricResult:
         return {
-            'score': ndcg_score,
-            'metric_name': f'nDCG@{k_effective}',
-            'k': k_effective,
-            'dcg': dcg,
-            'idcg': idcg
+            "score": dcg / idcg if idcg else 0.0,
+            "metric_name": f"nDCG@{k}",
+            "k": k,
+            "dcg": dcg,
+            "idcg": idcg,
         }
-    
+
     @property
     def name(self) -> str:
-        """Retorna el nombre de la métrica."""
         return "nDCG@k"
+
+
+def _dcg(relevances: list[int]) -> float:
+    return sum(
+        (2**relevance - 1) / log2(rank + 1)
+        for rank, relevance in enumerate(relevances, start=1)
+    )
