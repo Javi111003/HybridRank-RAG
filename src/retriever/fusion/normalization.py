@@ -1,35 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Dict
 
 
 class ScoreNormalizer(ABC):
-    """Interfaz abstracta para normalizadores de scores."""
+    """Score normalization strategy."""
 
     @abstractmethod
-    def normalize(self, scores: Dict[str, float]) -> Dict[str, float]:
-        """
-        Normaliza un diccionario de scores.
-
-        Args:
-            scores: Dict doc_id -> score original.
-
-        Returns:
-            Dict doc_id -> score normalizado.
-        """
-        pass
+    def normalize(self, scores: dict[str, float]) -> dict[str, float]:
+        raise NotImplementedError
 
 
 class MinMaxNormalizer(ScoreNormalizer):
-    """
-    Normalización Min-Max: escala scores al rango [0, 1].
-
-    Fórmula: (score - min) / (max - min)
-
-    Caso borde: si todos los scores son iguales (max == min),
-    retorna 1.0 para todos los documentos.
-    """
-
-    def normalize(self, scores: Dict[str, float]) -> Dict[str, float]:
+    def normalize(self, scores: dict[str, float]) -> dict[str, float]:
         if not scores:
             return {}
 
@@ -48,16 +29,7 @@ class MinMaxNormalizer(ScoreNormalizer):
 
 
 class ZScoreNormalizer(ScoreNormalizer):
-    """
-    Normalización Z-Score: centra en media 0 y desviación estándar 1.
-
-    Fórmula: (score - mean) / std
-
-    Caso borde: si todos los scores son iguales (std == 0),
-    retorna 0.0 para todos los documentos.
-    """
-
-    def normalize(self, scores: Dict[str, float]) -> Dict[str, float]:
+    def normalize(self, scores: dict[str, float]) -> dict[str, float]:
         if not scores:
             return {}
 
@@ -77,17 +49,7 @@ class ZScoreNormalizer(ScoreNormalizer):
 
 
 class SumNormalizer(ScoreNormalizer):
-    """
-    Normalización por suma: divide cada score por la suma total.
-
-    Fórmula: score / sum(scores)
-
-    Caso borde: si la suma es 0, retorna 0.0 para todos.
-    Nota: Requiere que los scores sean no-negativos para producir
-    resultados en [0, 1].
-    """
-
-    def normalize(self, scores: Dict[str, float]) -> Dict[str, float]:
+    def normalize(self, scores: dict[str, float]) -> dict[str, float]:
         if not scores:
             return {}
 
@@ -103,36 +65,24 @@ class SumNormalizer(ScoreNormalizer):
 
 
 class IdentityNormalizer(ScoreNormalizer):
-    """Normalizador identidad: retorna los scores sin cambios."""
-
-    def normalize(self, scores: Dict[str, float]) -> Dict[str, float]:
+    def normalize(self, scores: dict[str, float]) -> dict[str, float]:
         return dict(scores)
 
 
+NORMALIZERS = {
+    "minmax": MinMaxNormalizer,
+    "zscore": ZScoreNormalizer,
+    "sum": SumNormalizer,
+    "identity": IdentityNormalizer,
+}
+
+
 def get_normalizer(name: str) -> ScoreNormalizer:
-    """
-    Factory de normalizadores.
-
-    Args:
-        name: Nombre del normalizador: "minmax", "zscore", "sum", "identity".
-
-    Returns:
-        Instancia de ScoreNormalizer.
-
-    Raises:
-        ValueError: Si el nombre no es reconocido.
-    """
-    normalizers = {
-        "minmax": MinMaxNormalizer,
-        "zscore": ZScoreNormalizer,
-        "sum": SumNormalizer,
-        "identity": IdentityNormalizer,
-    }
-
-    if name not in normalizers:
+    normalizer_cls = NORMALIZERS.get(name)
+    if normalizer_cls is None:
         raise ValueError(
             f"Normalizador desconocido: '{name}'. "
-            f"Disponibles: {list(normalizers.keys())}"
+            f"Disponibles: {list(NORMALIZERS.keys())}"
         )
 
-    return normalizers[name]()
+    return normalizer_cls()

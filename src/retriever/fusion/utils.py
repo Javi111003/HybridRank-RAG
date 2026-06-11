@@ -1,43 +1,45 @@
-from typing import Dict, List, Set, Tuple
+from src.retriever.types import ResultsByRetriever, RetrievalResults
 
 
-def results_to_score_dict(results: List[Tuple[str, float]]) -> Dict[str, float]:
-    """Convierte lista de resultados a dict doc_id -> score."""
+def require_results(
+    results_by_retriever: ResultsByRetriever,
+    key: str,
+    label: str,
+) -> RetrievalResults:
+    try:
+        return results_by_retriever[key]
+    except KeyError as exc:
+        raise ValueError(
+            f"Recuperador {label} '{key}' no encontrado. "
+            f"Disponibles: {list(results_by_retriever.keys())}"
+        ) from exc
+
+
+def results_to_score_dict(results: RetrievalResults) -> dict[str, float]:
     return {doc_id: score for doc_id, score in results}
 
 
-def results_to_rank_dict(results: List[Tuple[str, float]]) -> Dict[str, int]:
-    """Convierte lista de resultados a dict doc_id -> rank (1-indexed)."""
+def results_to_rank_dict(results: RetrievalResults) -> dict[str, int]:
     return {doc_id: rank for rank, (doc_id, _) in enumerate(results, start=1)}
 
 
-def get_all_doc_ids(
-    results_by_retriever: Dict[str, List[Tuple[str, float]]],
-) -> Set[str]:
-    """Obtiene la unión de todos los doc_ids recuperados por todos los retrievers."""
-    all_ids: Set[str] = set()
-    for results in results_by_retriever.values():
-        for doc_id, _ in results:
-            all_ids.add(doc_id)
-    return all_ids
+def get_all_doc_ids(results_by_retriever: ResultsByRetriever) -> set[str]:
+    return {
+        doc_id
+        for results in results_by_retriever.values()
+        for doc_id, _ in results
+    }
 
 
-def sort_and_truncate(
-    scores: Dict[str, float], top_k: int
-) -> List[Tuple[str, float]]:
-    """Ordena docs por score descendente y trunca a top_k."""
-    sorted_results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return sorted_results[:top_k]
+def sort_and_truncate(scores: dict[str, float], top_k: int) -> RetrievalResults:
+    if top_k <= 0:
+        return []
+    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:top_k]
 
 
 def fill_missing_scores(
-    score_dict: Dict[str, float],
-    all_docs: Set[str],
+    score_dict: dict[str, float],
+    all_docs: set[str],
     default: float = 0.0,
-) -> Dict[str, float]:
-    """Rellena documentos ausentes con un score por defecto."""
-    filled = dict(score_dict)
-    for doc_id in all_docs:
-        if doc_id not in filled:
-            filled[doc_id] = default
-    return filled
+) -> dict[str, float]:
+    return {doc_id: score_dict.get(doc_id, default) for doc_id in all_docs}
