@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from collections.abc import Sequence
 
 from ..store.models import RetrievedFragment
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContextBuilder:
-    """Construye contexto estructurado para el LLM desde fragmentos recuperados."""
+    """Builds the source context sent to the generator."""
 
     def __init__(
         self,
@@ -23,69 +23,105 @@ class ContextBuilder:
         self.include_metadata = include_metadata
         self.deduplicate_by_norma = deduplicate_by_norma
 
-    def build(self, fragments: List[RetrievedFragment]) -> str:
-        if not fragments:
+    def build(self, fragments: Sequence[RetrievedFragment]) -> str:
+        selected = self._select_fragments(fragments)
+        if not selected:
             return ""
-
-        working = list(fragments[: self.max_fragments])
-
-        if self.deduplicate_by_norma:
-            seen: set[str] = set()
-            deduplicated: list[RetrievedFragment] = []
-            for frag in working:
-                if frag.norma_id not in seen:
-                    deduplicated.append(frag)
-                    seen.add(frag.norma_id)
-            working = deduplicated
 
         context_parts: list[str] = []
         total_chars = 0
 
-        for i, frag in enumerate(working, start=1):
-            header = self._build_header(frag, i)
-            block = f"{header}\n---\n{frag.content}\n"
-            block_len = len(block)
-
-            if total_chars + block_len > self.max_chars and context_parts:
+        for index, fragment in enumerate(selected, start=1):
+            block = self._format_fragment(fragment, index)
+            if self._reached_char_limit(total_chars, len(block), context_parts):
                 logger.info(
-                    "Limite de %d chars alcanzado en fuente %d", self.max_chars, i
+                    "Limite de %d chars alcanzado en fuente %d",
+                    self.max_chars,
+                    index,
                 )
                 break
 
             context_parts.append(block)
-            total_chars += block_len
+            total_chars += len(block)
 
-        result = "\n".join(context_parts)
         logger.info(
-            "Contexto construido: %d fuentes, %d chars", len(context_parts), total_chars
+            "Contexto construido: %d fuentes, %d chars",
+            len(context_parts),
+            total_chars,
         )
-        return result
+        return "\n".join(context_parts)
 
-    def _build_header(self, frag: RetrievedFragment, index: int) -> str:
+    def _select_fragments(
+        self,
+        fragments: Sequence[RetrievedFragment],
+    ) -> list[RetrievedFragment]:
+        selected = list(fragments[: self.max_fragments])
+        if not self.deduplicate_by_norma:
+            return selected
+
+        seen: set[str] = set()
+        deduplicated: list[RetrievedFragment] = []
+        for fragment in selected:
+            if fragment.norma_id in seen:
+                continue
+            seen.add(fragment.norma_id)
+            deduplicated.append(fragment)
+
+        return deduplicated
+
+    def _format_fragment(self, fragment: RetrievedFragment, index: int) -> str:
+        return f"{self._build_header(fragment, index)}\n---\n{fragment.content}\n"
+
+    def _reached_char_limit(
+        self,
+        current_chars: int,
+        next_block_chars: int,
+        context_parts: list[str],
+    ) -> bool:
+        has_context = bool(context_parts)
+        would_exceed_limit = current_chars + next_block_chars > self.max_chars
+        return has_context and would_exceed_limit
+
+    def _build_header(self, fragment: RetrievedFragment, index: int) -> str:
         header_lines = [
-            f"[Fuente {index}] {frag.tipo} {frag.numero}/{frag.year} — {frag.organismo_emisor}"
+            (
+                f"[Fuente {index}] {fragment.tipo} "
+                f"{fragment.numero}/{fragment.year} - {fragment.organismo_emisor}"
+            )
         ]
 
-        if self.include_metadata:
-            meta_parts: list[str] = []
-            if frag.gaceta_numero:
-                meta_parts.append(f"Gaceta Oficial No. {frag.gaceta_numero}")
-            if frag.gaceta_fecha:
-                meta_parts.append(frag.gaceta_fecha)
-            if frag.goc_code:
-                meta_parts.append(frag.goc_code)
+        if not self.include_metadata:
+            return "\n".join(header_lines)
 
-            page_start, page_end = frag.page_range
-            if page_start > 0:
-                if page_start == page_end:
-                    meta_parts.append(f"Pag. {page_start}")
-                else:
-                    meta_parts.append(f"Pags. {page_start}-{page_end}")
+        metadata = self._metadata_parts(fragment)
+        if metadata:
+            header_lines.append(" | ".join(metadata))
 
-            if meta_parts:
-                header_lines.append(" | ".join(meta_parts))
-
-            if frag.fragment_label:
-                header_lines.append(f"Seccion: {frag.fragment_label}")
+        if fragment.fragment_label:
+            header_lines.append(f"Seccion: {fragment.fragment_label}")
 
         return "\n".join(header_lines)
+
+    def _metadata_parts(self, fragment: RetrievedFragment) -> list[str]:
+        metadata = []
+        if fragment.gaceta_numero:
+            metadata.append(f"Gaceta Oficial No. {fragment.gaceta_numero}")
+        if fragment.gaceta_fecha:
+            metadata.append(fragment.gaceta_fecha)
+        if fragment.goc_code:
+            metadata.append(fragment.goc_code)
+
+        page_range = self._format_page_range(fragment)
+        if page_range:
+            metadata.append(page_range)
+
+        return metadata
+
+    @staticmethod
+    def _format_page_range(fragment: RetrievedFragment) -> str:
+        page_start, page_end = fragment.page_range
+        if page_start <= 0:
+            return ""
+        if page_start == page_end:
+            return f"Pag. {page_start}"
+        return f"Pags. {page_start}-{page_end}"
