@@ -6,14 +6,9 @@ import os
 import uuid 
 
 class EmbeddingGenerator:
-    """
-    Genera embeddings vectoriales para chunks de texto utilizando un modelo pre-entrenado.
-    """
+    """Genera embeddings con paraphrase-multilingual-MiniLM-L12-v2."""
+
     def __init__(self, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
-        """
-        Inicializa el generador de embeddings con un modelo Sentence-BERT.
-        :param model_name: Nombre del modelo a cargar desde Hugging Face.
-        """
         try:
             self.model = SentenceTransformer(model_name)
             print(f"Modelo de embeddings '{model_name}' cargado exitosamente.")
@@ -22,28 +17,14 @@ class EmbeddingGenerator:
             self.model = None
 
     def generate_embedding(self, text: str) -> np.ndarray:
-        """
-        Genera el embedding para un solo texto.
-        :param text: El texto limpio del chunk.
-        :return: Un array de numpy representando el embedding.
-        """
         if not self.model:
             raise RuntimeError("El modelo de embeddings no se cargó correctamente.")
-        
-        # Codificar el texto y devolver el array numpy
+
         embedding = self.model.encode(text, convert_to_tensor=False)
         print(f"Embedding generado para el texto: '{text[:30]}...' (longitud: {len(embedding)})")
         return embedding
 
     def generate_embeddings_for_chunks(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Genera embeddings para una lista de elementos limpios.
-        Cada elemento debe tener una clave 'cleaned_content' y 'metadata' con 'chunk_id'.
-        Se añadirá una nueva clave 'embedding' al diccionario de cada elemento.
-
-        :param chunks: Lista de diccionarios de elementos limpios.
-        :return: Lista de diccionarios de elementos, cada uno con un campo 'embedding'.
-        """
         if not self.model:
             print("Advertencia: No se generarán embeddings porque el modelo no está cargado.")
             return chunks
@@ -55,10 +36,7 @@ class EmbeddingGenerator:
             if (i + 1) % 100 == 0 or i == 0:
                 print(f"Procesando elemento {i + 1}/{total_chunks}...")
                 
-            # Usar cleaned_content como texto principal
             text_to_embed = chunk.get('cleaned_content', '')
-            
-            # Verificar que existe chunk_id en metadata
             chunk_id = chunk.get('metadata', {}).get('chunk_id', None)
             if not chunk_id:
                 chunk_id = str(uuid.uuid4())
@@ -75,7 +53,6 @@ class EmbeddingGenerator:
                 try:
                     embedding = self.generate_embedding(text_to_embed)
                     chunk_with_embedding = chunk.copy()
-                    # Convertir numpy array a lista para serialización JSON
                     chunk_with_embedding['embedding'] = embedding.tolist() if hasattr(embedding, 'tolist') else embedding
                 except Exception as e:
                     print(f"Error al generar embedding para elemento {chunk_id}: {e}")
@@ -91,7 +68,6 @@ if __name__ == "__main__":
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     cleaned_elements_path = os.path.join(project_root, '.data', 'cleaned_content', 'cleaned_elements.json')
 
-    # Cargar elementos limpios
     cleaned_elements = []
     if os.path.exists(cleaned_elements_path):
         print(f"Cargando elementos desde {cleaned_elements_path}...")
@@ -102,12 +78,10 @@ if __name__ == "__main__":
         print(f"Error: No se encontró el archivo de elementos limpios en {cleaned_elements_path}")
         exit(1)
 
-    # Generar embeddings
     print("\nIniciando generación de embeddings...")
     generator = EmbeddingGenerator()
     elements_with_embeddings = generator.generate_embeddings_for_chunks(cleaned_elements)
 
-    # Mostrar estadísticas
     total_elements = len(elements_with_embeddings)
     valid_embeddings = sum(1 for elem in elements_with_embeddings if elem.get('embedding') and len(elem['embedding']) > 0)
     empty_embeddings = total_elements - valid_embeddings
@@ -117,7 +91,6 @@ if __name__ == "__main__":
     print(f"Embeddings generados exitosamente: {valid_embeddings}")
     print(f"Embeddings vacíos (por errores o contenido vacío): {empty_embeddings}")
     
-    # Mostrar algunos ejemplos
     print("\n--- Primeros 3 Elementos con Embeddings ---")
     for i, element in enumerate(elements_with_embeddings[:3]):
         print(f"\nELEMENTO {i+1}:")
@@ -133,11 +106,9 @@ if __name__ == "__main__":
             print("Embedding: [] (Vacío)")
         print("-" * 50)
 
-    # Crear directorio de salida si no existe
     output_dir = os.path.join(project_root, '.data', 'embeddings')
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Guardar elementos con embeddings
+
     output_embeddings_path = os.path.join(output_dir, 'elements_with_embeddings.json')
     print(f"\nGuardando elementos con embeddings en: {output_embeddings_path}")
     
@@ -146,7 +117,6 @@ if __name__ == "__main__":
     
     print(f"\n¡Proceso completado! {valid_embeddings} elementos con embeddings guardados exitosamente.")
     
-    # Guardar también estadísticas
     stats_path = os.path.join(output_dir, 'embedding_stats.json')
     stats = {
         'total_elements': total_elements,

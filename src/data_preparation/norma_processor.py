@@ -60,9 +60,7 @@ _MESES = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Loading
-# ---------------------------------------------------------------------------
 
 def _load_elements(path: str) -> List[Dict[str, Any]]:
     """Load elements from JSON, streaming via ijson if available."""
@@ -86,9 +84,7 @@ def _load_elements(path: str) -> List[Dict[str, Any]]:
     return elements
 
 
-# ---------------------------------------------------------------------------
 # Step 1: Group chunks by gaceta
-# ---------------------------------------------------------------------------
 
 def group_chunks_by_gaceta(
     elements: List[Dict[str, Any]],
@@ -117,9 +113,7 @@ def group_chunks_by_gaceta(
     return dict(groups)
 
 
-# ---------------------------------------------------------------------------
 # Step 2: Concatenate chunks into full gaceta text
-# ---------------------------------------------------------------------------
 
 def concatenate_gaceta_text(
     chunks: List[Dict[str, Any]],
@@ -160,9 +154,7 @@ def _offset_to_page(offset: int, page_boundaries: List[Tuple[int, int]]) -> int:
     return page_boundaries[idx][1]
 
 
-# ---------------------------------------------------------------------------
 # Step 3: Segment by GOC codes
-# ---------------------------------------------------------------------------
 
 def _is_sumario_goc_match(full_text: str, match: re.Match) -> bool:
     """Check if a GOC code match is inside a SUMARIO (table of contents).
@@ -236,9 +228,7 @@ def segment_by_goc_codes(
     return sumario_text, segments
 
 
-# ---------------------------------------------------------------------------
 # Step 4-5: Match segments to norma metadata
-# ---------------------------------------------------------------------------
 
 def match_segments_to_normas(
     segments: List[Dict[str, Any]],
@@ -366,9 +356,7 @@ def match_segments_to_normas(
     return matched, unmatched
 
 
-# ---------------------------------------------------------------------------
 # Step 5: Process a single gaceta
-# ---------------------------------------------------------------------------
 
 def process_single_gaceta(
     grouping_key: str,
@@ -441,9 +429,7 @@ def process_single_gaceta(
     return gaceta
 
 
-# ---------------------------------------------------------------------------
 # Step 6: Detect cross-gaceta duplicates
-# ---------------------------------------------------------------------------
 
 _FECHA_PATTERN = re.compile(r'(\d{1,2})\s+(\w+),?\s+(\d{4})')
 
@@ -517,9 +503,7 @@ def detect_cross_gaceta_duplicates(
     return duplicates
 
 
-# ---------------------------------------------------------------------------
 # Step 7: Full pipeline
-# ---------------------------------------------------------------------------
 
 def process_all_normas(
     elements: List[Dict[str, Any]],
@@ -562,9 +546,7 @@ def process_all_normas(
     )
 
 
-# ---------------------------------------------------------------------------
 # Output: JSON
-# ---------------------------------------------------------------------------
 
 def save_json_output(result: ProcessingResult, output_path: str) -> None:
     """Save result as hierarchical JSON with incremental writing."""
@@ -578,9 +560,7 @@ def save_json_output(result: ProcessingResult, output_path: str) -> None:
     logger.info("JSON saved: %d gacetas", len(result.gacetas))
 
 
-# ---------------------------------------------------------------------------
 # Output: SQLite
-# ---------------------------------------------------------------------------
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS gacetas (
@@ -700,9 +680,7 @@ def save_sqlite_output(result: ProcessingResult, db_path: str) -> None:
         conn.close()
 
 
-# ---------------------------------------------------------------------------
 # Output: Processing report
-# ---------------------------------------------------------------------------
 
 def save_processing_report(result: ProcessingResult, report_path: str) -> None:
     """Save a lightweight diagnostic report."""
@@ -746,9 +724,7 @@ def save_processing_report(result: ProcessingResult, report_path: str) -> None:
     logger.info("Report saved with %d issue entries", len(gacetas_with_unmatched))
 
 
-# ---------------------------------------------------------------------------
 # CLI
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     import argparse
@@ -791,7 +767,6 @@ def main() -> None:
         datefmt='%H:%M:%S',
     )
 
-    # Load
     try:
         elements = _load_elements(args.input_file)
     except FileNotFoundError:
@@ -805,10 +780,8 @@ def main() -> None:
         logger.error("No elements loaded")
         sys.exit(1)
 
-    # Process
     result = process_all_normas(elements)
 
-    # Save outputs
     if not args.skip_json:
         save_json_output(result, args.json_output)
 
@@ -817,7 +790,6 @@ def main() -> None:
 
     save_processing_report(result, args.report_output)
 
-    # Summary
     stats = result.to_dict()['stats']
     print(f"\nProcessing complete:")
     print(f"  Gacetas:    {stats['total_gacetas']}")

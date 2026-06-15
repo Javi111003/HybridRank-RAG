@@ -190,14 +190,12 @@ if __name__ == "__main__":
     from datetime import datetime
 
     parser = argparse.ArgumentParser(description="Generador E5 de embeddings para chunks legales")
-    # --- I/O ---
     parser.add_argument("--input-file", default=None,
                         help="Ruta del JSON con cleaned_elements. Default: .data/cleaned_content/cleaned_elements.json")
     parser.add_argument("--output-file", default=None,
                         help="Ruta del JSON de salida con embeddings E5")
     parser.add_argument("--stats-file", default=None,
                         help="Ruta del JSON de estadisticas E5")
-    # --- Rendimiento ---
     parser.add_argument("--batch-size", type=int, default=64,
                         help="Tamano de lote para encode (default: 64)")
     parser.add_argument("--num-workers", type=int, default=None,
@@ -206,7 +204,6 @@ if __name__ == "__main__":
                         help="Usar float16 para inferencia (solo acelera en GPU)")
     parser.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True,
                         help="Normalizar embeddings a norma unitaria (default: True, --no-normalize para desactivar)")
-    # --- Checkpointing ---
     parser.add_argument("--checkpoint-every", type=int, default=0,
                         help="Guardar checkpoint cada N elementos procesados (0=deshabilitado, default: 0)")
     parser.add_argument("--resume", action="store_true",
@@ -221,8 +218,7 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
 
-    # --- Cargar elementos ---
-    if not os.path.exists(cleaned_elements_path):
+    if not os.path.exists(cleaned_elements_path):        
         print(f"Error: No se encontro el archivo de elementos limpios en {cleaned_elements_path}")
         raise SystemExit(1)
 
@@ -231,7 +227,6 @@ if __name__ == "__main__":
         cleaned_elements = json.load(f)
     print(f"Cargados {len(cleaned_elements)} elementos limpios.")
 
-    # --- Checkpointing: reanudar si se solicita ---
     start_offset = 0
     already_processed: List[Dict[str, Any]] = []
 
@@ -251,7 +246,6 @@ if __name__ == "__main__":
         print("Todos los elementos ya fueron procesados (checkpoint completo).")
         elements_with_embeddings = already_processed
     else:
-        # --- Crear generador ---
         print("\nIniciando generacion de embeddings con modelo E5...")
         generator = EmbeddingGeneratorE5(
             batch_size=args.batch_size,
@@ -260,7 +254,6 @@ if __name__ == "__main__":
             use_fp16=args.fp16,
         )
 
-        # --- Checkpointing incremental durante procesamiento ---
         checkpoint_every = args.checkpoint_every
         if checkpoint_every > 0:
             os.makedirs(checkpoint_dir, exist_ok=True)
@@ -289,7 +282,6 @@ if __name__ == "__main__":
             new_results = generator.generate_embeddings_for_chunks(remaining_elements)
             elements_with_embeddings = already_processed + new_results
 
-    # --- Estadisticas ---
     total_elements = len(elements_with_embeddings)
     valid_embeddings = sum(
         1 for elem in elements_with_embeddings
@@ -302,13 +294,11 @@ if __name__ == "__main__":
     print(f"Embeddings generados exitosamente: {valid_embeddings}")
     print(f"Embeddings vacios (por errores o contenido vacio): {empty_embeddings}")
 
-    # --- Guardar resultado final ---
     output_embeddings_path = args.output_file or os.path.join(output_dir, "e5_elements_with_embeddings.json")
     print(f"\nGuardando elementos con embeddings E5 en: {output_embeddings_path}")
     with open(output_embeddings_path, "w", encoding="utf-8") as f:
         json.dump(elements_with_embeddings, f, indent=2, ensure_ascii=False)
 
-    # --- Guardar stats ---
     stats_path = args.stats_file or os.path.join(output_dir, "e5_embedding_stats.json")
     stats = {
         "total_elements": total_elements,
@@ -327,7 +317,6 @@ if __name__ == "__main__":
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
 
-    # --- Limpiar checkpoints tras exito ---
     if os.path.isdir(checkpoint_dir):
         import shutil
         shutil.rmtree(checkpoint_dir)

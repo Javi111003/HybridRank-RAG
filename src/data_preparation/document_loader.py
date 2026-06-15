@@ -202,7 +202,6 @@ class AsyncDocumentLoader:
             print("⚠️ No se encontraron archivos PDF para procesar")
             return []
 
-        # Procesar documentos de forma asíncrona
         start_time = time.time()
         all_elements = await self._process_pdf_files_async(pdf_files)
         
@@ -400,7 +399,6 @@ class GacetaJsonDocumentLoader(AsyncDocumentLoader):
         return all_elements
 
 
-# --- Código de prueba ---
 if __name__ == "__main__":
     import argparse
 

@@ -26,7 +26,7 @@ from src.data_preparation.norma_models import (
 logger = logging.getLogger(__name__)
 
 
-# ── Regex patterns ───────────────────────────────────────────────────────────
+# Regex patterns
 
 DISPOSICIONES_PATTERN = re.compile(
     r'DISPOSICION(?:ES)?\s+FINAL(?:ES)?',
@@ -104,7 +104,7 @@ LOOSE_REFERENCE_PATTERN = re.compile(
 )
 
 
-# ── Organismo normalization ──────────────────────────────────────────────────
+# Organismo normalization
 
 STOP_WORDS = frozenset({
     'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'a', 'en', 'por',
@@ -144,7 +144,7 @@ def fuzzy_organismo_match(ref_organismo: str, db_organismo: str) -> bool:
     return overlap >= 0.6
 
 
-# ── Section extraction ───────────────────────────────────────────────────────
+# Section extraction
 
 def extract_disposiciones_section(text: str) -> Optional[str]:
     """Extract the DISPOSICIONES FINALES section from norma text.
@@ -160,7 +160,7 @@ def extract_disposiciones_section(text: str) -> Optional[str]:
     return text[m.start():]
 
 
-# ── Relation type classification ─────────────────────────────────────────────
+# Relation type classification
 
 def classify_relation_type(context: str) -> str:
     """Classify the relation type from surrounding context text.
@@ -176,7 +176,7 @@ def classify_relation_type(context: str) -> str:
     return 'menciona'
 
 
-# ── Reference extraction ─────────────────────────────────────────────────────
+# Reference extraction
 
 def _get_context_window(text: str, match_start: int, match_end: int,
                         window: int = 200) -> str:
@@ -344,7 +344,7 @@ def extract_loose_references(
     return refs
 
 
-# ── Index building ───────────────────────────────────────────────────────────
+# Index building
 
 def build_norma_index(conn: sqlite3.Connection) -> Dict:
     """Build lookup indices from Phase 1 SQLite DB.
@@ -379,7 +379,7 @@ def build_norma_index(conn: sqlite3.Connection) -> Dict:
     }
 
 
-# ── Resolution ───────────────────────────────────────────────────────────────
+# Resolution
 
 def resolve_references(
     refs: List[NormaReference],
@@ -496,7 +496,7 @@ def resolve_loose_references(
     return refs
 
 
-# ── Main pipeline ────────────────────────────────────────────────────────────
+# Main pipeline
 
 def link_all_normas(conn: sqlite3.Connection) -> LinkingResult:
     """Run the full linking pipeline on all normas in the DB."""
@@ -583,7 +583,7 @@ def link_all_normas(conn: sqlite3.Connection) -> LinkingResult:
     )
 
 
-# ── SQLite output ────────────────────────────────────────────────────────────
+# SQLite output
 
 _LINKING_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS norma_relationships (
@@ -655,7 +655,7 @@ def save_relationships_sqlite(result: LinkingResult, conn: sqlite3.Connection) -
     )
 
 
-# ── JSON report ──────────────────────────────────────────────────────────────
+# JSON report
 
 def save_linking_report(result: LinkingResult, output_path: str) -> None:
     """Save a linking report as JSON."""
@@ -687,7 +687,7 @@ def save_linking_report(result: LinkingResult, output_path: str) -> None:
     logger.info("Linking report written to %s", output_path)
 
 
-# ── CLI ──────────────────────────────────────────────────────────────────────
+# CLI
 
 import os
 

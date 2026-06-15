@@ -1,5 +1,3 @@
-# src/data_preparation/text_cleaner.py
-
 import re
 import unicodedata
 import uuid
@@ -431,7 +429,6 @@ if __name__ == "__main__":
     output_dir = os.path.dirname(args.output_file)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Cargar elementos
     try:
         elements = _load_elements(input_file)
     except FileNotFoundError:
@@ -441,27 +438,23 @@ if __name__ == "__main__":
         print(f"❌ Error al leer JSON: {e}")
         exit(1)
 
-    # Inicializar el limpiador
     cleaner = TextCleaner(
         min_cleaned_length=args.min_cleaned_length,
         batch_size=args.batch_size,
         max_workers=args.workers,
     )
 
-    # Limpiar documentos
     print("\n🧹 Procesando elementos...")
     total_start = time.time()
     cleaned_elements = cleaner.clean_documents(elements, apply_lemmatization=args.lemmatize)
     total_elapsed = time.time() - total_start
 
-    # Guardar elementos limpios
     try:
         _save_elements(cleaned_elements, args.output_file)
     except Exception as e:
         print(f"❌ Error al guardar archivo: {e}")
         exit(1)
 
-    # Resumen final
     rate = len(elements) / total_elapsed if total_elapsed > 0 else 0
     print(f"\n📊 Resumen del procesamiento:")
     print(f"   • Elementos originales: {len(elements)}")

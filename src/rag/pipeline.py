@@ -76,7 +76,6 @@ class RAGPipeline:
 
         logger.info("RAG pipeline: query='%s', top_k=%d", query, k)
 
-        # 1. Retrieval
         t0 = time.time()
         retrieval_results = self._retriever.retrieve(query, top_k=k)
         retrieval_ms = (time.time() - t0) * 1000
@@ -90,7 +89,6 @@ class RAGPipeline:
             self._log_interaction(result)
             return result
 
-        # 2. Resolver fragmentos via NormaStore
         fragments = self._store.get_fragments(retrieval_results)
         if not fragments:
             logger.warning("Sin fragmentos resueltos desde NormaStore")
@@ -98,14 +96,11 @@ class RAGPipeline:
             self._log_interaction(result)
             return result
 
-        # 3. Construir contexto
         context = self._context_builder.build(fragments)
         logger.info("Contexto: %d chars, %d fragmentos", len(context), len(fragments))
 
-        # 4. Construir prompt
         messages = self._prompt_builder.build(query, context)
 
-        # 5. Generar respuesta
         t1 = time.time()
         generation_result = self._generator.generate(messages)
         generation_ms = (time.time() - t1) * 1000
@@ -115,7 +110,6 @@ class RAGPipeline:
             len(generation_result.text),
         )
 
-        # 6. Formatear citas
         answer = self._citation_formatter.format(generation_result.text, fragments)
 
         total_ms = (time.time() - pipeline_start) * 1000
