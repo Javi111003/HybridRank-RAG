@@ -5,6 +5,11 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import chainlit as cl
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import app.data_layer  # noqa: F401, E402
 
 from src.config import config
 from src.retriever import BM25Retriever, DenseRetriever, HybridRetriever
@@ -19,6 +24,18 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    expected_user = os.environ.get("CHAINLIT_USER", "admin")
+    expected_pass = os.environ.get("CHAINLIT_PASS", "admin")
+    if (username, password) == (expected_user, expected_pass):
+        return cl.User(
+            identifier=username,
+            metadata={"role": "admin", "provider": "credentials"},
+        )
+    return None
 
 
 def _build_pipeline() -> RAGPipeline:
@@ -132,33 +149,52 @@ async def on_ver_fuentes(action: cl.Action):
         ).send()
 
 
+@cl.set_starters
+async def set_starters():
+    return [
+        cl.Starter(
+            label="Derechos laborales",
+            message="¿Cuáles son los derechos fundamentales de los trabajadores según el Código de Trabajo de Cuba?",
+            icon="/public/balance.svg",
+        ),
+        cl.Starter(
+            label="Propiedad y vivienda",
+            message="¿Qué establece la legislación cubana sobre la compraventa de viviendas entre particulares?",
+            icon="/public/home.svg",
+        ),
+        cl.Starter(
+            label="Empresa y comercio",
+            message="¿Cuáles son los requisitos legales para constituir una MIPYME en Cuba?",
+            icon="/public/business.svg",
+        ),
+        cl.Starter(
+            label="Derechos de familia",
+            message="¿Qué dice el Código de las Familias sobre la responsabilidad parental y custodia compartida?",
+            icon="/public/family.svg",
+        ),
+    ]
+
+
 @cl.on_chat_start
 async def start():
     try:
-        msg = cl.Message(content="Inicializando sistema HybridRank RAG...")
-        await msg.send()
-
         pipeline = _build_pipeline()
         cl.user_session.set("pipeline", pipeline)
         cl.user_session.set("last_fragments", None)
-
-        welcome = (
-            "## HybridRank RAG\n\n"
-            "Sistema listo para consultas.\n\n"
-            "| Componente | Configuracion |\n"
-            "|------------|---------------|\n"
-            f"| Retriever | `{pipeline._retriever.name}` |\n"
-            f"| Generador | `{pipeline._generator.name}` |\n"
-            f"| Top-K | `{pipeline._top_k}` |\n"
-            f"| Fusion | `{config.FUSION_STRATEGY}` |\n\n"
-            "Escribe tu consulta sobre legislacion cubana."
-        )
-        msg.content = welcome
-        await msg.update()
-
     except Exception as e:
         logger.error("Error inicializando pipeline: %s", e, exc_info=True)
         await cl.Message(content=f"Error al inicializar: {e}").send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread):
+    try:
+        pipeline = _build_pipeline()
+        cl.user_session.set("pipeline", pipeline)
+        cl.user_session.set("last_fragments", None)
+    except Exception as e:
+        logger.error("Error restaurando pipeline: %s", e, exc_info=True)
+        await cl.Message(content=f"Error al restaurar sesion: {e}").send()
 
 
 @cl.on_message
@@ -172,14 +208,10 @@ async def handle_message(message: cl.Message):
     if not query:
         return
 
-    thinking_msg = cl.Message(content="Buscando fuentes relevantes...")
-    await thinking_msg.send()
-
     try:
         result = pipeline.run(query)
 
-        thinking_msg.content = result.answer
-        await thinking_msg.update()
+        await cl.Message(content=result.answer).send()
 
         timing = (
             f"**Tiempos de ejecucion:**\n"
@@ -205,5 +237,4 @@ async def handle_message(message: cl.Message):
 
     except Exception as e:
         logger.error("Error en pipeline: %s", e, exc_info=True)
-        thinking_msg.content = f"Error procesando consulta: {e}"
-        await thinking_msg.update()
+        await cl.Message(content=f"Error procesando consulta: {e}").send()
