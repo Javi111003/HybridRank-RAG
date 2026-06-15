@@ -1,6 +1,11 @@
 # HybridRank-RAG
 
-HybridRank-RAG es un proyecto de recuperacion hibrida sobre documentos legales cubanos. El repo mantiene dos flujos paralelos:
+HybridRank-RAG es un proyecto de recuperacion hibrida sobre documentos legales cubanos.
+
+<img width="5011" height="2988" alt="HybridRankRAGv1" src="https://github.com/user-attachments/assets/9a414a67-c751-42f4-8717-64440d3cff57" />
+
+
+El repo mantiene dos flujos paralelos:
 
 - **Elementos originales**: usa los chunks generados por el loader/cleaner y los indexa en BM25 + Chroma.
 - **Normas estructuradas**: parte de `normas.db`, crea fragmentos normativos estables, genera embeddings, construye indices propios y permite crear un dataset de evaluacion sobre esos fragmentos.
